@@ -1,0 +1,57 @@
+happy: joy
+happiness: joy
+joy: joy
+joyful: joy
+
+love: love
+loving: love
+loved: love
+
+beautiful: admiration
+amazing: admiration
+amazingly: admiration
+wonderful: admiration
+
+great: happiness
+good: happiness
+
+excited: excitement
+exciting: excitement
+excitement: excitement
+
+proud: pride
+pride: pride
+
+hope: optimism
+hopeful: optimism
+optimistic: optimism
+
+sad: sadness
+sadness: sadness
+sadly: sadness
+cry: sadness
+crying: sadness
+tears: sadness
+
+angry: anger
+anger: anger
+angrily: anger
+
+hate: hatred
+hated: hatred
+hatred: hatred
+
+afraid: fear
+fear: fear
+scared: fear
+scary: fear
+
+frustrated: frustration
+frustration: frustration
+
+disappointed: disappointment
+disappointing: disappointment
+
+terrible: sadness
+bad: sadness
+worst: sadness
