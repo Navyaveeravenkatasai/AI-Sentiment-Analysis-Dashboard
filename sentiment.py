@@ -1,52 +1,53 @@
 import os
 import re
 import string
-from collections import Counter
-
 import matplotlib
+
+# =========================================================
+# MATPLOTLIB BACKEND
+# =========================================================
 
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 
-from nltk import word_tokenize
+from collections import Counter
+
+import nltk
+
+from nltk.tokenize import word_tokenize, sent_tokenize
 from nltk.corpus import stopwords
-from nltk.sentiment.vader import SentimentIntensityAnalyzer
+from nltk.sentiment import SentimentIntensityAnalyzer
 
 
 # =========================================================
-# PROJECT PATH
+# PROJECT PATHS
 # =========================================================
 
 BASE_DIR = os.path.dirname(
     os.path.abspath(__file__)
 )
 
-
 DATA_DIR = os.path.join(
     BASE_DIR,
     "data"
 )
-
 
 READ_FILE = os.path.join(
     DATA_DIR,
     "read.txt"
 )
 
-
 EMOTIONS_FILE = os.path.join(
     DATA_DIR,
     "emotions.txt"
 )
-
 
 CHART_DIR = os.path.join(
     BASE_DIR,
     "static",
     "charts"
 )
-
 
 CHART_FILE = os.path.join(
     CHART_DIR,
@@ -55,43 +56,148 @@ CHART_FILE = os.path.join(
 
 
 # =========================================================
-# CREATE REQUIRED DIRECTORIES
+# NLTK DATA
 # =========================================================
 
-os.makedirs(
-    DATA_DIR,
-    exist_ok=True
-)
+def download_nltk_data():
+    """
+    Download required NLTK resources if they
+    are not already available.
+    """
 
-os.makedirs(
-    CHART_DIR,
-    exist_ok=True
-)
+    resources = [
+        ("tokenizers/punkt", "punkt"),
+        ("tokenizers/punkt_tab", "punkt_tab"),
+        ("corpora/stopwords", "stopwords"),
+        ("sentiment/vader_lexicon", "vader_lexicon")
+    ]
+
+    for path, package in resources:
+
+        try:
+            nltk.data.find(path)
+
+        except LookupError:
+
+            try:
+                nltk.download(
+                    package,
+                    quiet=True
+                )
+
+            except Exception:
+                pass
+
+
+download_nltk_data()
 
 
 # =========================================================
-# LOAD EMOTIONS
+# SAFE TOKENIZER
+# =========================================================
+
+def safe_word_tokenize(text):
+
+    try:
+
+        return word_tokenize(text)
+
+    except LookupError:
+
+        try:
+            nltk.download(
+                "punkt",
+                quiet=True
+            )
+
+            nltk.download(
+                "punkt_tab",
+                quiet=True
+            )
+
+            return word_tokenize(text)
+
+        except Exception:
+
+            return text.split()
+
+
+# =========================================================
+# SAFE SENTENCE TOKENIZER
+# =========================================================
+
+def safe_sent_tokenize(text):
+
+    try:
+
+        return sent_tokenize(text)
+
+    except LookupError:
+
+        try:
+            nltk.download(
+                "punkt",
+                quiet=True
+            )
+
+            nltk.download(
+                "punkt_tab",
+                quiet=True
+            )
+
+            return sent_tokenize(text)
+
+        except Exception:
+
+            return re.split(
+                r'(?<=[.!?])\s+',
+                text
+            )
+
+
+# =========================================================
+# LOAD STOPWORDS
+# =========================================================
+
+def get_stopwords():
+
+    try:
+
+        return set(
+            stopwords.words("english")
+        )
+
+    except LookupError:
+
+        try:
+
+            nltk.download(
+                "stopwords",
+                quiet=True
+            )
+
+            return set(
+                stopwords.words("english")
+            )
+
+        except Exception:
+
+            return set()
+
+
+# =========================================================
+# LOAD EMOTION DICTIONARY
 # =========================================================
 
 def load_emotions():
 
     emotions = {}
 
-
     if not os.path.exists(
         EMOTIONS_FILE
     ):
 
-        print(
-            "ERROR: emotions.txt not found:"
-        )
-
-        print(
-            EMOTIONS_FILE
-        )
-
         return emotions
-
 
     try:
 
@@ -105,504 +211,279 @@ def load_emotions():
 
                 line = line.strip()
 
-
-                # Skip empty lines
-
                 if not line:
                     continue
 
+                # -------------------------------------------------
+                # Supported formats:
+                #
+                # happy joy
+                # happy:joy
+                # happy,joy
+                # -------------------------------------------------
 
-                # Skip comments
+                if ":" in line:
 
-                if line.startswith("#"):
-                    continue
+                    word, emotion = (
+                        line.split(
+                            ":",
+                            1
+                        )
+                    )
 
+                elif "," in line:
 
-                # Check format
+                    word, emotion = (
+                        line.split(
+                            ",",
+                            1
+                        )
+                    )
 
-                if ":" not in line:
-                    continue
+                else:
 
+                    parts = line.split()
 
-                word, emotion = line.split(
-                    ":",
-                    1
-                )
+                    if len(parts) < 2:
+                        continue
 
+                    word = parts[0]
+                    emotion = parts[1]
 
                 word = word.strip().lower()
-
                 emotion = emotion.strip().lower()
-
 
                 if word and emotion:
 
                     emotions[word] = emotion
 
-
     except Exception as error:
 
         print(
-            "Error reading emotions.txt:"
-        )
-
-        print(
+            "Error reading emotions.txt:",
             str(error)
         )
 
+    return emotions
 
-    print(
-        "Emotion dictionary loaded:",
-        len(emotions),
-        "words"
+
+# =========================================================
+# LOAD VADER
+# =========================================================
+
+def get_analyzer():
+
+    try:
+
+        return SentimentIntensityAnalyzer()
+
+    except LookupError:
+
+        try:
+
+            nltk.download(
+                "vader_lexicon",
+                quiet=True
+            )
+
+            return SentimentIntensityAnalyzer()
+
+        except Exception:
+
+            return None
+
+
+# =========================================================
+# SENTIMENT LABEL
+# =========================================================
+
+def get_sentiment_label(
+    compound
+):
+
+    if compound >= 0.05:
+
+        return "Positive"
+
+    elif compound <= -0.05:
+
+        return "Negative"
+
+    return "Neutral"
+
+
+# =========================================================
+# SENTIMENT PROBABILITIES
+# =========================================================
+
+def calculate_sentiment_probabilities(
+    scores
+):
+
+    positive = max(
+        0,
+        scores.get(
+            "pos",
+            0
+        )
     )
 
+    negative = max(
+        0,
+        scores.get(
+            "neg",
+            0
+        )
+    )
 
-    return emotions
+    neutral = max(
+        0,
+        scores.get(
+            "neu",
+            0
+        )
+    )
+
+    total = (
+        positive
+        + negative
+        + neutral
+    )
+
+    if total == 0:
+
+        return {
+            "positive": 0,
+            "neutral": 100,
+            "negative": 0
+        }
+
+    return {
+
+        "positive": round(
+            (positive / total) * 100,
+            2
+        ),
+
+        "neutral": round(
+            (neutral / total) * 100,
+            2
+        ),
+
+        "negative": round(
+            (negative / total) * 100,
+            2
+        )
+    }
 
 
 # =========================================================
 # CREATE EMOTION CHART
 # =========================================================
 
-def create_emotion_chart(emotion_count):
-
-    import numpy as np
-
-    # =====================================================
-    # CREATE FIGURE
-    # =====================================================
-
-    fig, ax = plt.subplots(
-        figsize=(12, 6.5)
-    )
-
-
-    # =====================================================
-    # EMPTY GRAPH
-    # =====================================================
+def create_emotion_chart(
+    emotion_count
+):
 
     if not emotion_count:
 
-        ax.text(
+        return False
 
-            0.5,
+    try:
 
-            0.5,
-
-            "No emotions detected",
-
-            ha="center",
-
-            va="center",
-
-            fontsize=20,
-
-            fontweight="bold"
-
+        os.makedirs(
+            CHART_DIR,
+            exist_ok=True
         )
 
-        ax.axis("off")
-
-
-    else:
-
-        # =================================================
-        # SORT EMOTIONS
-        # =================================================
-
-        sorted_emotions = sorted(
-
-            emotion_count.items(),
-
-            key=lambda item:
-                item[1],
-
-            reverse=True
-
-        )
-
-
-        emotion_names = [
-
-            item[0].title()
-
-            for item
-            in sorted_emotions
-
-        ]
-
-
-        emotion_values = [
-
-            item[1]
-
-            for item
-            in sorted_emotions
-
-        ]
-
-
-        # =================================================
-        # POSITIONS
-        # =================================================
-
-        x = np.arange(
-            len(emotion_names)
-        )
-
-
-        # =================================================
-        # GRADIENT-LIKE BAR HEIGHT
-        # =================================================
-
-        bars = ax.bar(
-
-            x,
-
-            emotion_values,
-
-            width=0.62,
-
-            edgecolor="white",
-
-            linewidth=0.8,
-
-            alpha=0.9
-
-        )
-
-
-        # =================================================
-        # TITLE
-        # =================================================
-
-        ax.set_title(
-
-            "Emotion Distribution",
-
-            fontsize=21,
-
-            fontweight="bold",
-
-            pad=20
-
-        )
-
-
-        # =================================================
-        # AXIS LABELS
-        # =================================================
-
-        ax.set_xlabel(
-
-            "Detected Emotions",
-
-            fontsize=12,
-
-            labelpad=12
-
-        )
-
-
-        ax.set_ylabel(
-
-            "Frequency",
-
-            fontsize=12,
-
-            labelpad=12
-
-        )
-
-
-        # =================================================
-        # X AXIS
-        # =================================================
-
-        ax.set_xticks(x)
-
-        ax.set_xticklabels(
-
-            emotion_names,
-
-            rotation=35,
-
-            ha="right",
-
-            fontsize=10
-
-        )
-
-
-        # =================================================
-        # VALUE LABELS
-        # =================================================
-
-        for bar, value in zip(
-
-            bars,
-
-            emotion_values
-
-        ):
-
-            ax.text(
-
-                bar.get_x()
-                + bar.get_width() / 2,
-
-                value + 0.05,
-
-                str(value),
-
-                ha="center",
-
-                va="bottom",
-
-                fontsize=11,
-
-                fontweight="bold"
-
-            )
-
-
-        # =================================================
-        # GRID
-        # =================================================
-
-        ax.grid(
-
-            axis="y",
-
-            linestyle="--",
-
-            alpha=0.25
-
-        )
-
-
-        # =================================================
-        # REMOVE TOP/RIGHT BORDER
-        # =================================================
-
-        ax.spines[
-            "top"
-        ].set_visible(False)
-
-
-        ax.spines[
-            "right"
-        ].set_visible(False)
-
-
-        # =================================================
-        # PADDING
-        # =================================================
-
-        ax.margins(
-            x=0.05
-        )
-
-
-    # =====================================================
-    # LAYOUT
-    # =====================================================
-
-    plt.tight_layout()
-
-
-    # =====================================================
-    # SAVE
-    # =====================================================
-
-    plt.savefig(
-
-        CHART_FILE,
-
-        dpi=180,
-
-        bbox_inches="tight",
-
-        facecolor="white"
-
-    )
-
-
-    # =====================================================
-    # CLOSE
-    # =====================================================
-
-    plt.close(fig)
-
-
-    print(
-        "Emotion chart created successfully."
-    )
-
-    # -----------------------------------------------------
-    # Create figure
-    # -----------------------------------------------------
-
-    plt.figure(
-        figsize=(10, 6)
-    )
-
-
-    # -----------------------------------------------------
-    # Emotions exist
-    # -----------------------------------------------------
-
-    if emotion_count:
-
-        emotion_names = list(
+        emotions = list(
             emotion_count.keys()
         )
 
-
-        emotion_values = list(
+        counts = list(
             emotion_count.values()
         )
 
-
-        bars = plt.bar(
-
-            emotion_names,
-
-            emotion_values
+        plt.figure(
+            figsize=(10, 5)
         )
 
-
-        # Title
+        bars = plt.bar(
+            emotions,
+            counts
+        )
 
         plt.title(
             "Emotion Distribution",
-            fontsize=18,
+            fontsize=16,
             fontweight="bold"
         )
 
-
-        # Axis labels
-
         plt.xlabel(
-            "Emotion",
-            fontsize=12
+            "Emotions"
         )
-
 
         plt.ylabel(
-            "Count",
-            fontsize=12
+            "Frequency"
         )
-
-
-        # Rotate labels
 
         plt.xticks(
-            rotation=45,
+            rotation=30,
             ha="right"
         )
-
-
-        # Add values above bars
-
-        for bar in bars:
-
-            height = bar.get_height()
-
-            plt.text(
-
-                bar.get_x()
-                + bar.get_width() / 2,
-
-                height,
-
-                str(
-                    int(height)
-                ),
-
-                ha="center",
-
-                va="bottom",
-
-                fontsize=11
-
-            )
-
 
         plt.grid(
             axis="y",
             alpha=0.2
         )
 
+        # Add values above bars
 
-    # -----------------------------------------------------
-    # No emotions
-    # -----------------------------------------------------
+        for bar, count in zip(
+            bars,
+            counts
+        ):
 
-    else:
+            plt.text(
+                bar.get_x()
+                + bar.get_width() / 2,
+                bar.get_height(),
+                str(count),
+                ha="center",
+                va="bottom",
+                fontsize=10
+            )
 
-        plt.text(
+        plt.tight_layout()
 
-            0.5,
-
-            0.5,
-
-            "No emotions detected",
-
-            horizontalalignment="center",
-
-            verticalalignment="center",
-
-            fontsize=18
-
+        plt.savefig(
+            CHART_FILE,
+            dpi=150,
+            bbox_inches="tight"
         )
 
+        plt.close()
 
-        plt.axis(
-            "off"
+        return True
+
+    except Exception as error:
+
+        print(
+            "Chart creation error:",
+            str(error)
         )
 
+        try:
+            plt.close()
 
-    # -----------------------------------------------------
-    # Layout
-    # -----------------------------------------------------
+        except Exception:
+            pass
 
-    plt.tight_layout()
-
-
-    # -----------------------------------------------------
-    # Save chart
-    # -----------------------------------------------------
-
-    plt.savefig(
-
-        CHART_FILE,
-
-        dpi=150,
-
-        bbox_inches="tight"
-    )
-
-
-    # -----------------------------------------------------
-    # Close figure
-    # -----------------------------------------------------
-
-    plt.close()
-
-
-    print(
-        "Emotion chart created:"
-    )
-
-    print(
-        CHART_FILE
-    )
+        return False
 
 
 # =========================================================
-# ANALYZE SENTIMENT
+# MAIN SENTIMENT ANALYSIS
 # =========================================================
 
 def analyze_sentiment():
@@ -617,58 +498,50 @@ def analyze_sentiment():
 
         return {
 
-            "sentiment": "Neutral 😐",
+            "sentiment": "Neutral",
 
             "sentiment_score": 0,
 
             "sentiment_probabilities": {
-
                 "positive": 0,
-
-                "neutral": 0,
-
+                "neutral": 100,
                 "negative": 0
-
             },
 
-            "emotions":
-                "No emotions detected",
+            "emotions": "No emotions detected",
 
-            "emotion_count":
-                {},
+            "emotion_count": {},
 
-            "keywords":
-                [],
+            "keywords": [],
 
             "statistics": {
-
                 "words": 0,
-
                 "characters": 0,
-
                 "sentences": 0,
-
                 "unique_words": 0
-
             },
 
-            "sentence_analysis":
-                []
-
+            "sentence_analysis": []
         }
 
+    try:
 
-    with open(
+        with open(
+            READ_FILE,
+            "r",
+            encoding="utf-8"
+        ) as file:
 
-        READ_FILE,
+            text = file.read().strip()
 
-        "r",
+    except Exception as error:
 
-        encoding="utf-8"
+        print(
+            "Error reading text:",
+            str(error)
+        )
 
-    ) as file:
-
-        text = file.read().strip()
+        text = ""
 
 
     # =====================================================
@@ -679,289 +552,231 @@ def analyze_sentiment():
 
         return {
 
-            "sentiment": "Neutral 😐",
+            "sentiment": "Neutral",
 
             "sentiment_score": 0,
 
             "sentiment_probabilities": {
-
                 "positive": 0,
-
-                "neutral": 0,
-
+                "neutral": 100,
                 "negative": 0
-
             },
 
-            "emotions":
-                "No emotions detected",
+            "emotions": "No emotions detected",
 
-            "emotion_count":
-                {},
+            "emotion_count": {},
 
-            "keywords":
-                [],
+            "keywords": [],
 
             "statistics": {
-
                 "words": 0,
-
                 "characters": 0,
-
                 "sentences": 0,
-
                 "unique_words": 0
-
             },
 
-            "sentence_analysis":
-                []
-
+            "sentence_analysis": []
         }
 
 
     # =====================================================
-    # LOWERCASE
+    # INITIALIZE NLTK
     # =====================================================
 
-    lower_text = text.lower()
+    analyzer = get_analyzer()
+
+    stop_words = get_stopwords()
 
 
     # =====================================================
-    # EXTRACT WORDS
+    # VADER ANALYSIS
     # =====================================================
 
-    words = re.findall(
+    if analyzer:
 
-        r"[a-zA-Z]+",
+        scores = analyzer.polarity_scores(
+            text
+        )
 
-        lower_text
+    else:
+
+        scores = {
+            "compound": 0,
+            "pos": 0,
+            "neu": 1,
+            "neg": 0
+        }
+
+
+    compound = round(
+        scores.get(
+            "compound",
+            0
+        ),
+        4
+    )
+
+
+    sentiment = get_sentiment_label(
+        compound
     )
 
 
     # =====================================================
-    # LOAD EMOTION DICTIONARY
+    # SENTIMENT PROBABILITIES
     # =====================================================
 
-    emotion_dictionary = load_emotions()
-
-
-    # =====================================================
-    # DETECT EMOTIONS
-    # =====================================================
-
-    emotion_list = []
-
-    detected_words = []
-
-
-    for word in words:
-
-        if word in emotion_dictionary:
-
-            emotion = emotion_dictionary[word]
-
-
-            emotion_list.append(
-                emotion
-            )
-
-
-            detected_words.append(
-                word
-            )
-
-
-    # =====================================================
-    # COUNT EMOTIONS
-    # =====================================================
-
-    emotion_count = dict(
-
-        Counter(
-            emotion_list
+    sentiment_probabilities = (
+        calculate_sentiment_probabilities(
+            scores
         )
     )
 
 
     # =====================================================
-    # DEBUG OUTPUT
+    # WORD TOKENIZATION
     # =====================================================
 
-    print("\n===================================")
-
-    print(
-        "EMOTION DETECTION"
-    )
-
-    print("===================================")
-
-
-    print(
-        "Detected words:",
-        detected_words
-    )
-
-
-    print(
-        "Detected emotions:",
-        emotion_list
-    )
-
-
-    print(
-        "Emotion count:",
-        emotion_count
-    )
-
-
-    print(
-        "===================================\n"
+    tokens = safe_word_tokenize(
+        text.lower()
     )
 
 
     # =====================================================
-    # CREATE GRAPH
+    # CLEAN WORDS
     # =====================================================
 
-    create_emotion_chart(
-        emotion_count
+    clean_words = []
+
+    for word in tokens:
+
+        word = word.strip(
+            string.punctuation
+        )
+
+        if not word:
+            continue
+
+        if not re.match(
+            r"^[a-zA-Z]+$",
+            word
+        ):
+            continue
+
+        clean_words.append(
+            word
+        )
+
+
+    # =====================================================
+    # STATISTICS
+    # =====================================================
+
+    word_count = len(
+        clean_words
     )
 
-
-    # =====================================================
-    # VADER SENTIMENT
-    # =====================================================
-
-    analyzer = SentimentIntensityAnalyzer()
-
-
-    scores = analyzer.polarity_scores(
+    character_count = len(
         text
     )
 
+    sentences = safe_sent_tokenize(
+        text
+    )
 
-    positive = scores["pos"]
+    sentence_count = len(
+        [
+            sentence
+            for sentence in sentences
+            if sentence.strip()
+        ]
+    )
 
-    neutral = scores["neu"]
-
-    negative = scores["neg"]
-
-    compound = scores["compound"]
-
-
-    # =====================================================
-    # DETERMINE SENTIMENT
-    # =====================================================
-
-    if compound >= 0.05:
-
-        sentiment = "Positive 😊"
-
-    elif compound <= -0.05:
-
-        sentiment = "Negative 😞"
-
-    else:
-
-        sentiment = "Neutral 😐"
+    unique_word_count = len(
+        set(clean_words)
+    )
 
 
-    # =====================================================
-    # SENTIMENT PERCENTAGES
-    # =====================================================
+    statistics = {
 
-    sentiment_probabilities = {
+        "words": word_count,
 
-        "positive":
-            round(
-                positive * 100,
-                2
-            ),
+        "characters": character_count,
 
-        "neutral":
-            round(
-                neutral * 100,
-                2
-            ),
+        "sentences": sentence_count,
 
-        "negative":
-            round(
-                negative * 100,
-                2
-            )
-
+        "unique_words": unique_word_count
     }
 
 
     # =====================================================
-    # CLEAN TEXT
+    # EMOTION DETECTION
     # =====================================================
 
-    cleaned_text = lower_text.translate(
-
-        str.maketrans(
-
-            "",
-
-            "",
-
-            string.punctuation
-        )
+    emotion_dictionary = (
+        load_emotions()
     )
 
+    emotion_count = Counter()
 
-    # =====================================================
-    # TOKENIZATION
-    # =====================================================
-
-    try:
-
-        tokenized_words = word_tokenize(
-            cleaned_text
-        )
-
-    except LookupError:
-
-        tokenized_words = cleaned_text.split()
+    detected_emotions = []
 
 
-    # =====================================================
-    # STOPWORDS
-    # =====================================================
+    for word in clean_words:
 
-    try:
+        if word in emotion_dictionary:
 
-        stop_words = set(
-            stopwords.words(
-                "english"
+            emotion = (
+                emotion_dictionary[word]
             )
+
+            emotion_count[
+                emotion
+            ] += 1
+
+            if emotion not in detected_emotions:
+
+                detected_emotions.append(
+                    emotion
+                )
+
+
+    # =====================================================
+    # EMOTIONS TEXT
+    # =====================================================
+
+    if detected_emotions:
+
+        emotions = ", ".join(
+            emotion.title()
+            for emotion in detected_emotions
         )
 
-    except LookupError:
+    else:
 
-        stop_words = set()
-
-
-    final_words = [
-
-        word
-
-        for word in tokenized_words
-
-        if word not in stop_words
-
-        and word.isalpha()
-
-    ]
+        emotions = (
+            "No emotions detected"
+        )
 
 
     # =====================================================
     # KEYWORDS
     # =====================================================
 
+    meaningful_words = [
+
+        word
+
+        for word in clean_words
+
+        if word not in stop_words
+
+        and len(word) > 2
+    ]
+
+
     word_frequency = Counter(
-        final_words
+        meaningful_words
     )
 
 
@@ -970,59 +785,8 @@ def analyze_sentiment():
         word
 
         for word, count
-
-        in word_frequency.most_common(
-            10
-        )
-
+        in word_frequency.most_common(10)
     ]
-
-
-    # =====================================================
-    # SENTENCE COUNT
-    # =====================================================
-
-    sentence_list = re.split(
-
-        r"[.!?]+",
-
-        text
-    )
-
-
-    sentence_list = [
-
-        sentence.strip()
-
-        for sentence
-        in sentence_list
-
-        if sentence.strip()
-
-    ]
-
-
-    # =====================================================
-    # STATISTICS
-    # =====================================================
-
-    statistics = {
-
-        "words":
-            len(words),
-
-        "characters":
-            len(text),
-
-        "sentences":
-            len(sentence_list),
-
-        "unique_words":
-            len(
-                set(words)
-            )
-
-    }
 
 
     # =====================================================
@@ -1032,58 +796,68 @@ def analyze_sentiment():
     sentence_analysis = []
 
 
-    for sentence in sentence_list:
+    for sentence in sentences:
 
-        sentence_score = (
-            analyzer.polarity_scores(
-                sentence
-            )
-        )
+        sentence = sentence.strip()
 
-
-        sentence_compound = (
-            sentence_score["compound"]
-        )
+        if not sentence:
+            continue
 
 
-        if sentence_compound >= 0.05:
+        if analyzer:
 
-            sentence_sentiment = (
-                "Positive 😊"
-            )
-
-        elif sentence_compound <= -0.05:
-
-            sentence_sentiment = (
-                "Negative 😞"
+            sentence_scores = (
+                analyzer.polarity_scores(
+                    sentence
+                )
             )
 
         else:
 
-            sentence_sentiment = (
-                "Neutral 😐"
+            sentence_scores = {
+                "compound": 0
+            }
+
+
+        sentence_score = round(
+            sentence_scores.get(
+                "compound",
+                0
+            ),
+            4
+        )
+
+
+        sentence_sentiment = (
+            get_sentiment_label(
+                sentence_score
             )
+        )
 
 
         sentence_analysis.append({
 
-            "text":
-                sentence,
+            "text": sentence,
 
             "sentiment":
                 sentence_sentiment,
 
             "score":
-                round(
-                    sentence_compound,
-                    3
-                )
-
+                sentence_score
         })
 
 
     # =====================================================
-    # RETURN RESULTS
+    # CREATE CHART
+    # =====================================================
+
+    create_emotion_chart(
+        dict(emotion_count)
+    )
+
+
+    # =====================================================
+    # FINAL RESULT
     # =====================================================
 
     return {
@@ -1092,28 +866,16 @@ def analyze_sentiment():
             sentiment,
 
         "sentiment_score":
-            round(
-                compound,
-                3
-            ),
+            compound,
 
         "sentiment_probabilities":
             sentiment_probabilities,
 
         "emotions":
-
-            ", ".join(
-                emotion_list
-            )
-
-            if emotion_list
-
-            else
-
-            "No emotions detected",
+            emotions,
 
         "emotion_count":
-            emotion_count,
+            dict(emotion_count),
 
         "keywords":
             keywords,
@@ -1123,5 +885,4 @@ def analyze_sentiment():
 
         "sentence_analysis":
             sentence_analysis
-
     }
